@@ -10,6 +10,8 @@ This component wraps the Docker Compose installation of Paperless.
 
 ## Setup
 
+Create a file named `stack.py`:
+
 ```py
 from opslib import Component, Directory, LocalHost, Prop, Stack
 from opslib_contrib.paperless import Paperless
@@ -49,6 +51,12 @@ class MyStack(Stack):
 
 
 stack = MyStack(__name__)
+```
+
+Review what will be deployed:
+
+```shell
+opslib - diff
 ```
 
 Deploy the stack:
