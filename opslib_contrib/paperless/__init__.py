@@ -1,9 +1,11 @@
 from collections.abc import Callable
 from dataclasses import dataclass
+import shlex
 
 from opslib import Directory, evaluate, lazy_property
 from opslib.components import TypedComponent
 
+from opslib_contrib.backup_service import BackupPlan
 from opslib_contrib.docker import DockerCompose
 from opslib_contrib.localsecret import LocalSecret
 
@@ -27,6 +29,8 @@ class Paperless(TypedComponent(PaperlessProps)):
             name="env",
             content=self.env_file_content,
         )
+
+        self.backup_volume = self.volumes / "backup"
 
         self.compose = DockerCompose(
             directory=self.directory,
@@ -81,6 +85,7 @@ class Paperless(TypedComponent(PaperlessProps)):
                     f"{vol / 'media'}:/usr/src/paperless/media",
                     f"{vol / 'export'}:/usr/src/paperless/export",
                     f"{vol / 'consume'}:/usr/src/paperless/consume",
+                    f"{self.backup_volume.path}:/backup_volume",
                 ],
                 "env_file": self.env_file.path.name,
                 "environment": {
@@ -117,3 +122,12 @@ class Paperless(TypedComponent(PaperlessProps)):
             )
 
         return services
+
+    def backup_to(self, plan: BackupPlan):
+        plan.add_precommand(
+            "("
+            f"cd {shlex.quote(str(self.directory.path))}"
+            " && docker compose exec -T webserver document_exporter /backup_volume"
+            ")"
+        )
+        plan.add_path(self.backup_volume.path)
