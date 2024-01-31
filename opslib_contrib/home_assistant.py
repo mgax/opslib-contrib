@@ -111,7 +111,7 @@ class HomeAssistant(UpgradableMixin, TypedComponent(HomeAssistantProps)):
         )
         if self.props.create_tunnel_sidecar:
             services["sidecar"] = self.props.create_tunnel_sidecar(
-                backend="100.107.116.127:8123",
+                backend="127.0.0.1:8123",
                 network_mode="host",
             )
 
