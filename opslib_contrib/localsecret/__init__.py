@@ -1,5 +1,6 @@
 import secrets
 from typing import Optional
+import click
 
 from opslib.components import Component
 from opslib.lazy import NotAvailable, lazy_property
@@ -40,3 +41,8 @@ class LocalSecret(Component):
         @cli.command()
         def clear():
             self.state["value"] = None
+
+        @cli.command()
+        @click.option("--value", prompt=True, hide_input=True)
+        def set(value):
+            self.state["value"] = value

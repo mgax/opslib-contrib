@@ -7,4 +7,6 @@ name = "opslib-contrib"
 dynamic = ["version", "description"]
 dependencies = [
     "pyopslib",
+    "requests",
+    "pyyaml",
 ]
