@@ -24,5 +24,5 @@ pip install git+https://github.com/mgax/opslib-contrib
 * [docker](opslib_contrib/docker.py) is a wrapper for Docker Compose that will,
   among other things, run `docker compose up` only when the configuration
   changes.
-* [versions](oslib_contrib/versions.py) and
-  [upgradable](oslib_contrib/upgradable.py) help keep apps up to date.
+* [versions](opslib_contrib/versions.py) and
+  [upgradable](opslib_contrib/upgradable.py) help keep apps up to date.
