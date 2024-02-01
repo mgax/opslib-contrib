@@ -37,7 +37,7 @@ class Paperless(TypedComponent(PaperlessProps)):
             services=self.compose_services,
         )
 
-        self.up = self.compose.up_command()
+        self.up = self.compose.up_command(run_after=[self.env_file])
 
     @lazy_property
     def env_file_content(self):

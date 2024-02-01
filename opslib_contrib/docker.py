@@ -77,8 +77,10 @@ class DockerCompose(Component):
         self._up_command_run_after.append(pull)
         return pull
 
-    def up_command(self):
-        return self.command("up -d", run_after=self._up_command_run_after)
+    def up_command(self, run_after=[]):
+        return self.command(
+            "up -d", run_after=[*self._up_command_run_after, *run_after]
+        )
 
     def add_commands(self, cli):
         @cli.command
