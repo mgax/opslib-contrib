@@ -1,6 +1,7 @@
 from collections.abc import Callable
 from dataclasses import dataclass
 from textwrap import dedent
+from typing import Any
 
 import yaml
 from opslib import Directory, evaluate, lazy_property
@@ -8,7 +9,7 @@ from opslib.components import TypedComponent
 
 from opslib_contrib.backup_service import BackupPlan
 from opslib_contrib.upgradable import UpgradableMixin
-from opslib_contrib.docker import DockerCompose
+from opslib_contrib.docker import DockerCompose, Sidecar
 from opslib_contrib.localsecret import LocalSecret
 from opslib_contrib.versions import Version
 import requests
@@ -25,7 +26,7 @@ class HomeAssistantVersion(Version):
 class HomeAssistantProps:
     directory: Directory
     volumes: Directory
-    create_tunnel_sidecar: Callable | None = None
+    create_tunnel_sidecar: Callable[..., Sidecar] | None = None
 
 
 class HomeAssistant(UpgradableMixin, TypedComponent(HomeAssistantProps)):
@@ -38,14 +39,29 @@ class HomeAssistant(UpgradableMixin, TypedComponent(HomeAssistantProps)):
         self.db_volume = self.props.volumes / "db"
         self.db_password = LocalSecret()
 
-        self.secrets_yaml = self.directory.file(
+        self.hass_secrets_yaml = self.directory.file(
             name="secrets.yaml",
-            content=self.secrets_content,
+            content=self.hass_secrets_content,
         )
+
+        compose_secrets: dict[str, Any] = {
+            "DB_PASSWORD": self.db_password.value,
+        }
+
+        if self.props.create_tunnel_sidecar:
+            self.sidecar = self.props.create_tunnel_sidecar(
+                backend="127.0.0.1:8123",
+                network_mode="host",
+            )
+            compose_secrets.update(self.sidecar.secrets)
+
+        else:
+            self.sidecar = None
 
         self.compose = DockerCompose(
             directory=self.directory,
             services=self.compose_services,
+            secrets=compose_secrets,
         )
 
         self.pg_dump_script = self.directory.file(
@@ -65,7 +81,7 @@ class HomeAssistant(UpgradableMixin, TypedComponent(HomeAssistantProps)):
         self.up = self.compose.up_command()
 
     @lazy_property
-    def secrets_content(self):
+    def hass_secrets_content(self):
         db_password = evaluate(self.db_password.value)
         secrets = {
             "psql_string": f"postgresql://ha:{db_password}@127.0.0.1:20251/ha",
@@ -75,7 +91,6 @@ class HomeAssistant(UpgradableMixin, TypedComponent(HomeAssistantProps)):
     @lazy_property
     def compose_services(self):
         version = evaluate(self.version.current)
-        db_password = evaluate(self.db_password.value)
 
         image = f"ghcr.io/home-assistant/home-assistant:{version}"
 
@@ -98,7 +113,7 @@ class HomeAssistant(UpgradableMixin, TypedComponent(HomeAssistantProps)):
                 image="postgres:14",
                 environment={
                     "POSTGRES_USER": "ha",
-                    "POSTGRES_PASSWORD": db_password,
+                    "POSTGRES_PASSWORD": "$DB_PASSWORD",
                     "PGPORT": "20251",
                 },
                 volumes=[
@@ -109,11 +124,8 @@ class HomeAssistant(UpgradableMixin, TypedComponent(HomeAssistantProps)):
                 restart="unless-stopped",
             ),
         )
-        if self.props.create_tunnel_sidecar:
-            services["sidecar"] = self.props.create_tunnel_sidecar(
-                backend="127.0.0.1:8123",
-                network_mode="host",
-            )
+        if self.sidecar:
+            services["sidecar"] = self.sidecar.service
 
         return services
 

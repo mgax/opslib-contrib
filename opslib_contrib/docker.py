@@ -1,10 +1,11 @@
+from dataclasses import dataclass
 import shlex
 from textwrap import dedent
-from typing import Optional
+from typing import Any, Optional
 
 import click
 import yaml
-from opslib import Component, Directory, Lazy, Prop, evaluate
+from opslib import Component, Directory, Lazy, MaybeLazy, Prop, evaluate
 
 
 class DockerCompose(Component):
@@ -12,6 +13,7 @@ class DockerCompose(Component):
         directory = Prop(Directory)
         services = Prop(Optional[dict], lazy=True)
         networks = Prop(Optional[dict], lazy=True)
+        secrets = Prop(Optional[dict], lazy=True)
         compose_command = Prop(str, default="docker compose")
         filename = Prop(str, default="docker-compose.yml")
 
@@ -25,6 +27,19 @@ class DockerCompose(Component):
         )
 
         self._up_command_run_after = [self.compose_file]
+
+        if self.props.secrets is not None:
+            self.env_file = self.props.directory.file(
+                name=".env",
+                content=Lazy(
+                    lambda: "".join(
+                        f"{key}={shlex.quote(value)}\n"
+                        for key, value in evaluate(self.props.secrets).items()
+                    )
+                ),
+                mode="600",
+            )
+            self._up_command_run_after.append(self.env_file)
 
     def get_compose_file_content(self):
         rv = {
@@ -91,3 +106,9 @@ class DockerCompose(Component):
         @click.argument("args", nargs=-1, type=click.UNPROCESSED)
         def run(args):
             self.run(*args, capture_output=False, exit=True)
+
+
+@dataclass
+class Sidecar:
+    service: dict[str, Any]
+    secrets: dict[str, MaybeLazy[str]]
