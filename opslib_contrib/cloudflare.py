@@ -1,118 +1,192 @@
 import json
 from base64 import b64encode
 from dataclasses import dataclass
-from itertools import count
+from typing import cast
 
-from opslib import MaybeLazy, evaluate, lazy_property
+from opslib import Lazy, MaybeLazy, evaluate, lazy_property
+from opslib.cli import ComponentGroup
 from opslib.components import TypedComponent
 from opslib.terraform import TerraformProvider
-from opslib_contrib.docker import Sidecar
-from opslib_contrib.localsecret import LocalSecret
+
+from .docker import Sidecar
+from .localsecret import LocalSecret
 
 
-@dataclass
-class CloudflareProps:
-    account_name: str
-    zone_name: str
-
-
-class Cloudflare(TypedComponent(CloudflareProps)):
+class Cloudflare(TypedComponent()):
     def build(self):
         self.provider = TerraformProvider(
             name="cloudflare",
             source="cloudflare/cloudflare",
-            version="~> 4.2",
+            version="~> 4.0",
         )
 
         self.accounts = self.provider.data(
             type="cloudflare_accounts",
-            args=dict(
-                name=self.props.account_name,
-            ),
             output=["accounts"],
         )
 
-        self.zones = self.provider.data(
-            type="cloudflare_zones",
-            args=dict(
-                filter=dict(
-                    name=self.props.zone_name,
-                ),
-            ),
-            output=["zones"],
-        )
+    def account(self, name, **kwargs):
+        def get_account_id():
+            for account in cast(list, evaluate(self.accounts.output["accounts"])):
+                if account["name"] == name:
+                    return account["id"]
+            raise RuntimeError("Account not found")
 
-    @lazy_property
-    def account_id(self):
-        accounts = evaluate(self.accounts.output["accounts"])
-        assert (
-            len(accounts) == 1
-        ), f"Expected one account, found {len(accounts)}: {accounts!r}"
-        return accounts[0]["id"]
-
-    @lazy_property
-    def zone_id(self):
-        zones = evaluate(self.zones.output["zones"])
-        assert len(zones) == 1, f"Expected one zone, found {len(zones)}: {zones!r}"
-        return zones[0]["id"]
-
-    def tunnel(self, name, secret=None):
-        return CloudflareTunnel(
+        return CloudflareAccount(
+            cloudflare=self,
             name=name,
-            secret=secret,
-            provider=self.provider,
-            account_id=self.account_id,
-            zone_id=self.zone_id,
-            zone_name=self.props.zone_name,
-        )
-
-    def access_application(self, name, domain, **kwargs):
-        return CloudflareAccessApplication(
-            provider=self.provider,
-            zone_id=self.zone_id,
-            name=name,
-            domain=domain,
+            account_id=Lazy(get_account_id),
             **kwargs,
         )
 
-    def record(self, name, type, value, proxied=False, **args):
-        return self.provider.resource(
+    def add_commands(self, cli: ComponentGroup):
+        @cli.command()
+        def accounts():
+            for account in cast(list, evaluate(self.accounts.output["accounts"])):
+                print(account["id"], account["name"])
+
+
+@dataclass
+class CloudflareAccountProps:
+    cloudflare: Cloudflare
+    name: str
+    account_id: MaybeLazy[str]
+
+
+class CloudflareAccount(TypedComponent(CloudflareAccountProps)):
+    def build(self):
+        self.zones = self.props.cloudflare.provider.data(
+            type="cloudflare_zones",
+            args={
+                "filter": {
+                    "account_id": self.props.account_id,
+                },
+            },
+            output=["zones"],
+        )
+
+    def add_commands(self, cli: ComponentGroup):
+        @cli.command()
+        def zones():
+            for zone in cast(list, evaluate(self.zones.output["zones"])):
+                print(zone["id"], zone["name"])
+
+    def zone(self, name, **kwargs):
+        def get_zone_id():
+            for zone in cast(list, evaluate(self.zones.output["zones"])):
+                if zone["name"] == name:
+                    return zone["id"]
+
+        return CloudflareZone(
+            cloudflare=self.props.cloudflare,
+            name=name,
+            zone_id=Lazy(get_zone_id),
+            **kwargs,
+        )
+
+    def tunnel(self, **kwargs):
+        return CloudflareTunnel(
+            cloudflare=self.props.cloudflare,
+            account_id=self.props.account_id,
+            **kwargs,
+        )
+
+
+@dataclass
+class CloudflareZoneProps:
+    cloudflare: Cloudflare
+    name: str
+    zone_id: MaybeLazy[str]
+
+
+class CloudflareZone(TypedComponent(CloudflareZoneProps)):
+    @property
+    def zone_id(self):
+        return self.props.zone_id
+
+    def record(self, **kwargs):
+        return CloudflareRecord(
+            cloudflare=self.props.cloudflare,
+            zone=self,
+            **kwargs,
+        )
+
+    def access_application(self, **kwargs):
+        return CloudflareAccessApplication(
+            cloudflare=self.props.cloudflare,
+            zone=self,
+            **kwargs,
+        )
+
+
+@dataclass
+class CloudflareRecordProps:
+    cloudflare: Cloudflare
+    zone: CloudflareZone
+    args: dict
+
+
+class CloudflareRecord(TypedComponent(CloudflareRecordProps)):
+    def build(self):
+        self.record = self.props.cloudflare.provider.resource(
             type="cloudflare_record",
             args=dict(
-                zone_id=self.zone_id,
+                zone_id=self.props.zone.zone_id,
+                **self.props.args,
+            ),
+        )
+
+
+@dataclass
+class CloudflareAccessApplicationProps:
+    cloudflare: Cloudflare
+    zone: CloudflareZone
+    name: str
+    domain: str
+    session_duration: str = "720h"
+
+
+class CloudflareAccessApplication(TypedComponent(CloudflareAccessApplicationProps)):
+    def build(self):
+        self.access_application = self.props.cloudflare.provider.resource(
+            type="cloudflare_access_application",
+            args=dict(
+                zone_id=self.props.zone.zone_id,
+                name=self.props.name,
+                domain=self.props.domain,
+                session_duration=self.props.session_duration,
+            ),
+            output=["id"],
+        )
+
+    def access_policy(self, precedence, name, include, decision="allow"):
+        return self.props.cloudflare.provider.resource(
+            type="cloudflare_access_policy",
+            args=dict(
+                application_id=self.access_application.output["id"],
+                zone_id=self.props.zone.zone_id,
+                precedence=precedence,
                 name=name,
-                type=type,
-                value=value,
-                proxied=proxied,
-                **args,
+                include=include,
+                decision=decision,
             ),
         )
 
 
 @dataclass
 class CloudflareTunnelProps:
-    name: str
-    secret: MaybeLazy[str | None]
-    provider: TerraformProvider
+    cloudflare: Cloudflare
     account_id: MaybeLazy[str]
-    zone_id: MaybeLazy[str]
-    zone_name: MaybeLazy[str]
+    name: str
+    secret: MaybeLazy[str | None] = None
 
 
 class CloudflareTunnel(TypedComponent(CloudflareTunnelProps)):
-    @lazy_property
-    def _secret(self):
-        if self.props.secret:
-            return self.props.secret
-
-        else:
-            return b64encode(evaluate(self.secret.value).encode("utf8")).decode("utf8")
-
     def build(self):
         if self.props.secret is None:
             self.secret = LocalSecret()
 
-        self.tunnel = self.props.provider.resource(
+        self.tunnel = self.props.cloudflare.provider.resource(
             type="cloudflare_tunnel",
             args=dict(
                 account_id=self.props.account_id,
@@ -122,34 +196,76 @@ class CloudflareTunnel(TypedComponent(CloudflareTunnelProps)):
             output=["id"],
         )
 
-        self.cname = self.props.provider.resource(
-            type="cloudflare_record",
-            args=dict(
-                zone_id=self.props.zone_id,
-                name=self.record_name,
-                type="CNAME",
-                value=self.cname_value,
-                proxied=True,
-            ),
-        )
+    @lazy_property
+    def _secret(self):
+        if self.props.secret:
+            return self.props.secret
+
+        else:
+            value = cast(str, evaluate(self.secret.value))
+            return b64encode(value.encode("utf8")).decode("utf8")
 
     @lazy_property
-    def cname_value(self):
-        return f"{evaluate(self.tunnel.output['id'])}.cfargotunnel.com"
-
-    @lazy_property
-    def record_name(self):
-        name = self.props.name
-        suffix = f".{self.props.zone_name}"
-        return name[: -len(suffix)] if name.endswith(suffix) else name
-
-    def token(self):
+    def cloudflared_token(self):
         payload = {
             "a": evaluate(self.props.account_id),
             "t": evaluate(self.tunnel.output["id"]),
             "s": evaluate(self._secret),
         }
         return b64encode(json.dumps(payload).encode("utf8")).decode("utf8")
+
+    @lazy_property
+    def cname_value(self):
+        return f"{evaluate(self.tunnel.output['id'])}.cfargotunnel.com"
+
+    def cname_record(self, zone, name):
+        return zone.record(
+            args=dict(
+                name=name,
+                type="CNAME",
+                value=self.cname_value,
+                proxied=True,
+            ),
+        )
+
+
+@dataclass
+class SimpleTunnelProps:
+    cloudflare_account: CloudflareAccount
+    zone_name: str
+    hostname: str
+    emails: list[str]
+
+
+class SimpleTunnel(TypedComponent(SimpleTunnelProps)):
+    def build(self):
+        fqdn = f"{self.props.hostname}.{self.props.zone_name}"
+
+        self.zone = self.props.cloudflare_account.zone(
+            name=self.props.zone_name,
+        )
+
+        self.tunnel = self.props.cloudflare_account.tunnel(
+            name=fqdn,
+        )
+
+        self.cname = self.tunnel.cname_record(
+            zone=self.zone,
+            name=self.props.hostname,
+        )
+
+        self.access_application = self.zone.access_application(
+            name=fqdn,
+            domain=fqdn,
+        )
+
+        self.access_policy = self.access_application.access_policy(
+            precedence=1,
+            name="Log in with email",
+            include=dict(
+                email=self.props.emails,
+            ),
+        )
 
     def sidecar(self, backend, name_prefix="CLOUDFLARED", **kwargs) -> Sidecar:
         return Sidecar(
@@ -163,44 +279,6 @@ class CloudflareTunnel(TypedComponent(CloudflareTunnelProps)):
                 **kwargs,
             ),
             secrets={
-                f"{name_prefix}_TUNNEL_TOKEN": self.token(),
+                f"{name_prefix}_TUNNEL_TOKEN": self.tunnel.cloudflared_token,
             },
-        )
-
-
-@dataclass
-class CloudflareAccessApplicationProps:
-    name: str
-    provider: TerraformProvider
-    zone_id: MaybeLazy[str]
-    domain: str
-    session_duration: str = "720h"
-
-
-class CloudflareAccessApplication(TypedComponent(CloudflareAccessApplicationProps)):
-    def build(self):
-        self.application = self.props.provider.resource(
-            type="cloudflare_access_application",
-            args=dict(
-                zone_id=self.props.zone_id,
-                name=self.props.name,
-                domain=self.props.domain,
-                session_duration=self.props.session_duration,
-            ),
-            output=["id"],
-        )
-
-        self._precedence = count(1)
-
-    def policy(self, name, include, decision="allow"):
-        return self.props.provider.resource(
-            type="cloudflare_access_policy",
-            args=dict(
-                application_id=self.application.output["id"],
-                zone_id=self.props.zone_id,
-                name=name,
-                include=include,
-                decision=decision,
-                precedence=next(self._precedence),
-            ),
         )
