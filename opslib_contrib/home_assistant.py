@@ -133,6 +133,6 @@ class HomeAssistant(UpgradableMixin, TypedComponent(HomeAssistantProps)):
         plan.add_precommand(self.pg_dump_script.path)
         plan.add_path(self.config_volume.path)
 
-    def upgrade(self, dry_run=False):
+    def upgrade(self, *, dry_run=False, deploy=True):
         self.version.set_latest(dry_run=dry_run)
-        return super().upgrade(dry_run=dry_run)
+        return super().upgrade(dry_run=dry_run, deploy=deploy)
