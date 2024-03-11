@@ -6,7 +6,7 @@ from opslib import Directory, evaluate, lazy_property
 from opslib.components import TypedComponent
 
 from opslib_contrib.backup_service import BackupPlan
-from opslib_contrib.docker import DockerCompose
+from opslib_contrib.docker import DockerCompose, Sidecar
 from opslib_contrib.localsecret import LocalSecret
 
 
@@ -16,7 +16,7 @@ class PaperlessProps:
     volumes: Directory
     env_vars: dict | None = None
     port: int | str | None = None
-    create_tunnel_sidecar: Callable | None = None
+    create_tunnel_sidecar: Callable[..., Sidecar] | None = None
 
 
 class Paperless(TypedComponent(PaperlessProps)):
@@ -32,9 +32,18 @@ class Paperless(TypedComponent(PaperlessProps)):
 
         self.backup_volume = self.volumes / "backup"
 
+        if self.props.create_tunnel_sidecar:
+            self.sidecar = self.props.create_tunnel_sidecar(
+                backend="webserver:8000",
+            )
+
+        else:
+            self.sidecar = None
+
         self.compose = DockerCompose(
             directory=self.directory,
             services=self.compose_services,
+            secrets=self.sidecar.secrets if self.sidecar else None,
         )
 
         self.up = self.compose.up_command(run_after=[self.env_file])
@@ -116,10 +125,8 @@ class Paperless(TypedComponent(PaperlessProps)):
                 f"{self.props.port}:8000",
             ]
 
-        if self.props.create_tunnel_sidecar:
-            services["sidecar"] = self.props.create_tunnel_sidecar(
-                backend="webserver:8000",
-            )
+        if self.sidecar:
+            services["sidecar"] = self.sidecar.service
 
         return services
 
