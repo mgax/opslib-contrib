@@ -24,7 +24,7 @@ class Version(Component):
 
         else:
             if (not confirm) or click.confirm(
-                f"Upgrading from {current!r} to {latest!r}"
+                f"Upgrading {self} from {current!r} to {latest!r}"
             ):
                 if dry_run:
                     click.echo("Dry-run: not updating state")
