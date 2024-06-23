@@ -118,6 +118,13 @@ class CloudflareZone(TypedComponent(CloudflareZoneProps)):
             **kwargs,
         )
 
+    def create_ruleset(self, **kwargs):
+        return CloudflareZoneRuleset(
+            cloudflare=self.props.cloudflare,
+            zone=self,
+            **kwargs,
+        )
+
 
 @dataclass
 class CloudflareRecordProps:
@@ -132,6 +139,25 @@ class CloudflareRecord(TypedComponent(CloudflareRecordProps)):
             type="cloudflare_record",
             args=dict(
                 zone_id=self.props.zone.zone_id,
+                **self.props.args,
+            ),
+        )
+
+
+@dataclass
+class CloudflareZoneRulesetProps:
+    cloudflare: Cloudflare
+    zone: CloudflareZone
+    args: dict
+
+
+class CloudflareZoneRuleset(TypedComponent(CloudflareZoneRulesetProps)):
+    def build(self):
+        self.ruleset = self.props.cloudflare.provider.resource(
+            type="cloudflare_ruleset",
+            args=dict(
+                zone_id=self.props.zone.zone_id,
+                kind="zone",
                 **self.props.args,
             ),
         )
