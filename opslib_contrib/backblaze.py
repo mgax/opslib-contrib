@@ -103,7 +103,7 @@ class BackblazeBucket(Component):
             with TemporaryDirectory() as tmp:
                 self.run(
                     "sync",
-                    "--allowEmptySource",
+                    "--allow-empty-source",
                     "--delete",
                     tmp,
                     b2_uri,
