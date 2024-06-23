@@ -16,6 +16,7 @@ class DockerCompose(Component):
         secrets = Prop(Optional[dict], lazy=True)
         compose_command = Prop(str, default="docker compose")
         filename = Prop(str, default="docker-compose.yml")
+        compose_file_version = Prop(Optional[str])
 
     def build(self):
         def compose_file_content():
@@ -42,19 +43,20 @@ class DockerCompose(Component):
             self._up_command_run_after.append(self.env_file)
 
     def get_compose_file_content(self):
-        rv = {
-            "version": "3",
-        }
+        compose = {}
+
+        if self.props.compose_file_version is not None:
+            compose["version"] = self.props.compose_file_version
 
         services = evaluate(self.props.services)
         if services:
-            rv["services"] = services
+            compose["services"] = services
 
         networks = evaluate(self.props.networks)
         if networks:
-            rv["networks"] = networks
+            compose["networks"] = networks
 
-        return rv
+        return compose
 
     def command(self, command, run_after=[]):
         return self.props.directory.host.command(
