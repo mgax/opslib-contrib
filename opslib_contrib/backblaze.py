@@ -1,3 +1,4 @@
+import os
 from tempfile import TemporaryDirectory
 
 from opslib import Component, Prop, run
@@ -36,6 +37,19 @@ class Backblaze(Component):
             name=name,
         )
 
+    @property
+    def b2_key_id(self):
+        return (
+            self.props.config.get("application_key_id")
+            or os.environ["B2_APPLICATION_KEY_ID"]
+        )
+
+    @property
+    def b2_key(self):
+        return (
+            self.props.config.get("application_key") or os.environ["B2_APPLICATION_KEY"]
+        )
+
 
 class BackblazeBucket(Component):
     class Props:
@@ -68,6 +82,11 @@ class BackblazeBucket(Component):
         )
 
     def run(self, *args, **kwargs):
+        extra_env = kwargs.setdefault("extra_env", {})
+        extra_env.update(
+            B2_APPLICATION_KEY_ID=self.props.account.b2_key_id,
+            B2_APPLICATION_KEY=self.props.account.b2_key,
+        )
         run("b2", *args, **kwargs)
 
     def add_commands(self, cli):
