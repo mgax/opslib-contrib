@@ -2,6 +2,7 @@ import secrets
 from typing import Optional
 import click
 
+from opslib.callbacks import Callbacks
 from opslib.components import Component
 from opslib.lazy import NotAvailable, lazy_property
 from opslib.props import Prop
@@ -14,6 +15,7 @@ class LocalSecret(Component):
         length = Prop(Optional[int])
 
     state = JsonState()
+    on_change = Callbacks()
 
     def _generate(self):
         value = secrets.token_urlsafe()
@@ -26,6 +28,7 @@ class LocalSecret(Component):
             return Result()
 
         if not dry_run:
+            self.on_change.invoke()
             self.state["value"] = self._generate()
 
         return Result(changed=True)
