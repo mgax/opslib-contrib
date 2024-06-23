@@ -1,8 +1,11 @@
+from functools import cached_property
 import json
+import os
 from base64 import b64encode
 from dataclasses import dataclass
 from typing import cast
 
+import requests
 from opslib import Lazy, MaybeLazy, evaluate, lazy_property
 from opslib.cli import ComponentGroup
 from opslib.components import TypedComponent
@@ -38,6 +41,15 @@ class Cloudflare(TypedComponent()):
             account_id=Lazy(get_account_id),
             **kwargs,
         )
+
+    @cached_property
+    def api_session(self):
+        session = requests.Session()
+        session.headers = {
+            "X-Auth-Email": os.environ["CLOUDFLARE_EMAIL"],
+            "X-Auth-Key": os.environ["CLOUDFLARE_API_KEY"],
+        }
+        return session
 
     def add_commands(self, cli: ComponentGroup):
         @cli.command()
@@ -124,6 +136,15 @@ class CloudflareZone(TypedComponent(CloudflareZoneProps)):
             zone=self,
             **kwargs,
         )
+
+    def add_commands(self, cli: ComponentGroup):
+        @cli.command
+        def records():
+            zone_id = evaluate(self.zone_id)
+            url = f"https://api.cloudflare.com/client/v4/zones/{zone_id}/dns_records"
+            response = self.props.cloudflare.api_session.get(url)
+            for record in response.json()["result"]:
+                print(record["id"], record["name"], record["type"], record["content"])
 
 
 @dataclass
