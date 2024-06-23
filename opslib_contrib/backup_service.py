@@ -85,7 +85,7 @@ class BackupPlan(TypedComponent(BackupPlanProps)):
         )
 
         self.healthcheck = self.props.service.props.healthchecks.check(
-            name=f"{self.full_name}-daily-backups",
+            name=f"{self.full_name}-daily",
             channels=[self.healthcheck_channels.id],
             timeout=86400,
         )
@@ -120,7 +120,7 @@ class BackupPlan(TypedComponent(BackupPlanProps)):
     def systemd_timer_service(self, **props):
         return SystemdTimerService(
             host=self.directory.host.sudo(),
-            name=f"{self.full_name}-daily-backups",
+            name=f"{self.full_name}-daily",
             exec_start=self.daily.path,
             **props,
         )
