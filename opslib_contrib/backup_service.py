@@ -118,9 +118,10 @@ class BackupPlan(TypedComponent(BackupPlanProps)):
         return out.getvalue()
 
     def systemd_timer_service(self, **props):
+        props.setdefault("name", f"{self.full_name}-daily")
+
         return SystemdTimerService(
             host=self.directory.host.sudo(),
-            name=f"{self.full_name}-daily",
             exec_start=self.daily.path,
             **props,
         )
