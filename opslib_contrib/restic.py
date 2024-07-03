@@ -1,7 +1,8 @@
 from dataclasses import dataclass
-from opslib import JsonState, Lazy, MaybeLazy, evaluate, run
+from opslib import Lazy, MaybeLazy, evaluate, run
 from opslib.components import TypedComponent
 from opslib.results import OperationError, Result
+from opslib.state import JsonState, StatefulMixin
 
 
 @dataclass
@@ -12,7 +13,7 @@ class ResticProps:
     restic_binary: str = "restic"
 
 
-class Restic(TypedComponent(ResticProps)):
+class Restic(StatefulMixin, TypedComponent(ResticProps)):
     state = JsonState()
 
     @property

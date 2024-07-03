@@ -2,14 +2,14 @@ import logging
 
 import click
 from opslib import Component, Prop, lazy_property
-from opslib.state import JsonState
+from opslib.state import JsonState, StatefulMixin
 
 from . import github
 
 logger = logging.getLogger(__name__)
 
 
-class Version(Component):
+class Version(StatefulMixin, Component):
     state = JsonState()
 
     def get_latest(self):

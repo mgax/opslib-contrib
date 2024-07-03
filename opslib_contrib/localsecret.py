@@ -7,10 +7,10 @@ from opslib.components import Component
 from opslib.lazy import NotAvailable, lazy_property
 from opslib.props import Prop
 from opslib.results import Result
-from opslib.state import JsonState
+from opslib.state import JsonState, StatefulMixin
 
 
-class LocalSecret(Component):
+class LocalSecret(StatefulMixin, Component):
     class Props:
         length = Prop(Optional[int])
 
