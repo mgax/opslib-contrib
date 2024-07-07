@@ -1,5 +1,6 @@
 import os
 from tempfile import TemporaryDirectory
+import click
 
 from opslib import Component, Prop, run
 from opslib.terraform import TerraformProvider
@@ -91,8 +92,20 @@ class BackblazeBucket(Component):
 
     def add_commands(self, cli):
         @cli.forward_command
-        def b2(args):
+        def run(args):
             self.run(*args, capture_output=False, exit=True)
+
+        @cli.command()
+        @click.argument("source", type=click.Path(file_okay=False))
+        def sync_from(source):
+            b2_uri = f"b2://{self.props.name}"
+            self.run("sync", source, b2_uri, capture_output=False, exit=True)
+
+        @cli.command()
+        @click.argument("target", type=click.Path(file_okay=False))
+        def sync_to(target):
+            b2_uri = f"b2://{self.props.name}"
+            self.run("sync", b2_uri, target, capture_output=False, exit=True)
 
         @cli.command()
         def empty_bucket():
