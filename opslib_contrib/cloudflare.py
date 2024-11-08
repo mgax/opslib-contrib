@@ -270,7 +270,7 @@ class CloudflareTunnel(TypedComponent(CloudflareTunnelProps)):
             args=dict(
                 name=name,
                 type="CNAME",
-                value=self.cname_value,
+                content=self.cname_value,
                 proxied=True,
             ),
         )
