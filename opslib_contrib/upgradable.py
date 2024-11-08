@@ -1,6 +1,6 @@
 import click
 from opslib import Component
-from opslib.operations import apply, print_report
+from opslib.operations import AbortOperation, apply, print_report
 
 
 class UpgradableMixin(Component):
@@ -12,4 +12,12 @@ class UpgradableMixin(Component):
         @click.option("-n", "--dry-run", is_flag=True)
         @click.option("--deploy/--no-deploy", default=True)
         def upgrade(dry_run, deploy):
-            print_report(self.upgrade(dry_run=dry_run, deploy=deploy))
+            try:
+                results = self.upgrade(dry_run=dry_run, deploy=deploy)
+
+            except AbortOperation:
+                # opslib handled and printed the error and then aborted
+                pass
+
+            else:
+                print_report(results)
