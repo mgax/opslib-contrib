@@ -1,8 +1,11 @@
+from functools import cached_property
 import os
 from tempfile import TemporaryDirectory
+from dataclasses import dataclass
 import click
 
-from opslib import Component, Prop, run
+from opslib import MaybeLazy, run
+from opslib.components import TypedComponent
 from opslib.terraform import TerraformProvider
 
 B2_KEY_CAPABILITIES = [
@@ -20,16 +23,22 @@ B2_KEY_CAPABILITIES = [
 ]
 
 
-class Backblaze(Component):
-    class Props:
-        config = Prop(dict, default={})
+@dataclass
+class BackblazeProps:
+    config: dict | None = None
+
+
+class Backblaze(TypedComponent(BackblazeProps)):
+    @cached_property
+    def config(self):
+        return self.props.config or {}
 
     def build(self):
         self.provider = TerraformProvider(
             name="b2",
             source="Backblaze/b2",
             version="~> 0.8.1",
-            config=self.props.config,
+            config=self.config,
         )
 
     def bucket(self, name):
@@ -41,22 +50,21 @@ class Backblaze(Component):
     @property
     def b2_key_id(self):
         return (
-            self.props.config.get("application_key_id")
-            or os.environ["B2_APPLICATION_KEY_ID"]
+            self.config.get("application_key_id") or os.environ["B2_APPLICATION_KEY_ID"]
         )
 
     @property
     def b2_key(self):
-        return (
-            self.props.config.get("application_key") or os.environ["B2_APPLICATION_KEY"]
-        )
+        return self.config.get("application_key") or os.environ["B2_APPLICATION_KEY"]
 
 
-class BackblazeBucket(Component):
-    class Props:
-        account = Prop(Backblaze)
-        name = Prop(str)
+@dataclass
+class BackblazeBucketProps:
+    account: Backblaze
+    name: str
 
+
+class BackblazeBucket(TypedComponent(BackblazeBucketProps)):
     def build(self):
         self.resource = self.props.account.provider.resource(
             type="b2_bucket",
@@ -125,12 +133,14 @@ class BackblazeBucket(Component):
                 )
 
 
-class BackblazeKey(Component):
-    class Props:
-        account = Prop(Backblaze)
-        name = Prop(str)
-        bucket_id = Prop(str, lazy=True)
+@dataclass
+class BackblazeKeyProps:
+    account: Backblaze
+    name: str
+    bucket_id: MaybeLazy[str]
 
+
+class BackblazeKey(TypedComponent(BackblazeKeyProps)):
     def build(self):
         self.resource = self.props.account.provider.resource(
             type="b2_application_key",
