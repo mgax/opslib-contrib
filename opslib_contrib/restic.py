@@ -7,7 +7,7 @@ from opslib.state import JsonState, StatefulMixin
 
 @dataclass
 class ResticProps:
-    repository: str
+    repository: MaybeLazy[str]
     password: MaybeLazy[str]
     env: MaybeLazy[dict | None]
     restic_binary: str = "restic"
@@ -23,7 +23,7 @@ class Restic(StatefulMixin, TypedComponent(ResticProps)):
     @property
     def extra_env(self):
         return dict(
-            RESTIC_REPOSITORY=self.props.repository,
+            RESTIC_REPOSITORY=evaluate(self.props.repository),
             RESTIC_PASSWORD=evaluate(self.props.password),
             **(evaluate(self.props.env) or {}),
         )

@@ -6,7 +6,7 @@ from io import StringIO
 from opslib import Directory, evaluate, lazy_property
 from opslib.components import TypedComponent
 from opslib.extras.systemd import SystemdTimerService
-from opslib_contrib.backblaze import Backblaze
+from opslib_contrib.backblaze import Backblaze, BackblazeBucket, BackblazeKey
 from opslib_contrib.healthchecks import Healthchecks
 from opslib_contrib.localsecret import LocalSecret
 from opslib_contrib.restic import Restic
@@ -17,11 +17,21 @@ set -euo pipefail
 """
 
 
+class BackupStorage:
+    @lazy_property
+    def restic_repository(self) -> str:
+        ...
+
+    @lazy_property
+    def restic_env(self) -> dict[str, str]:
+        ...
+
+
 @dataclass
 class BackupServiceProps:
     name_prefix: str
-    backblaze: Backblaze
     healthchecks: Healthchecks
+    backblaze: Backblaze | None = None
 
 
 class BackupService(TypedComponent(BackupServiceProps)):
@@ -36,6 +46,23 @@ class BackupService(TypedComponent(BackupServiceProps)):
 
 
 @dataclass
+class B2Storage(BackupStorage):
+    b2_bucket: BackblazeBucket
+    b2_key: BackblazeKey
+
+    @lazy_property
+    def restic_repository(self):
+        return f"b2:{self.b2_bucket.name}:"
+
+    @lazy_property
+    def restic_env(self):
+        return dict(
+            B2_ACCOUNT_ID=self.b2_key.key_id,
+            B2_ACCOUNT_KEY=self.b2_key.key,
+        )
+
+
+@dataclass
 class BackupPlanProps:
     service: BackupService
     name: str
@@ -43,6 +70,7 @@ class BackupPlanProps:
     shell: str = "/bin/bash"
     restic_binary: str = "restic"
     backup_script_preamble: str = BASH_PREAMBLE
+    storage: BackupStorage | None = None
 
 
 class BackupPlan(TypedComponent(BackupPlanProps)):
@@ -57,20 +85,24 @@ class BackupPlan(TypedComponent(BackupPlanProps)):
 
         self.directory = self.props.directory
 
-        self.b2_bucket = self.props.service.props.backblaze.bucket(
-            name=self.full_name,
-        )
-        self.b2_key = self.b2_bucket.key()
+        if self.props.storage:
+            self._storage = self.props.storage
+
+        else:
+            self.b2_bucket = self.props.service.props.backblaze.bucket(
+                name=self.full_name,
+            )
+
+            self.b2_key = self.b2_bucket.key()
+
+            self._storage = B2Storage(self.b2_bucket, self.b2_key)
 
         self.password = LocalSecret()
 
         self.repo = Restic(
-            repository=f"b2:{self.b2_bucket.name}:",
+            repository=self._storage.restic_repository,
             password=self.password.value,
-            env=dict(
-                B2_ACCOUNT_ID=self.b2_key.key_id,
-                B2_ACCOUNT_KEY=self.b2_key.key,
-            ),
+            env=self._storage.restic_env,
             restic_binary=self.props.restic_binary,
         )
 
@@ -105,7 +137,7 @@ class BackupPlan(TypedComponent(BackupPlanProps)):
             out.write(f"{cmd}\n")
 
         for key, value in self.repo.extra_env.items():
-            out.write(f"export {key}={shlex.quote(value)}\n")
+            out.write(f"export {key}={shlex.quote(evaluate(value))}\n")
 
         cmd = ["exec", self.props.restic_binary, "backup"]
         cmd += [shlex.quote(str(path)) for path in evaluate(self.backup_paths)]
