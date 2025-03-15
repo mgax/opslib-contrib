@@ -71,6 +71,7 @@ class BackupPlanProps:
     restic_binary: str = "restic"
     backup_script_preamble: str = BASH_PREAMBLE
     storage: BackupStorage | None = None
+    setup_healthcheck: bool = True
 
 
 class BackupPlan(TypedComponent(BackupPlanProps)):
@@ -112,15 +113,16 @@ class BackupPlan(TypedComponent(BackupPlanProps)):
             mode="700",
         )
 
-        self.healthcheck_channels = self.props.service.props.healthchecks.channel(
-            kind="email",
-        )
+        if self.props.setup_healthcheck:
+            self.healthcheck_channels = self.props.service.props.healthchecks.channel(
+                kind="email",
+            )
 
-        self.healthcheck = self.props.service.props.healthchecks.check(
-            name=f"{self.full_name}-daily",
-            channels=[self.healthcheck_channels.id],
-            timeout=86400,
-        )
+            self.healthcheck = self.props.service.props.healthchecks.check(
+                name=f"{self.full_name}-daily",
+                channels=[self.healthcheck_channels.id],
+                timeout=86400,
+            )
 
         self.daily = self.directory.file(
             name="daily",
@@ -161,8 +163,11 @@ class BackupPlan(TypedComponent(BackupPlanProps)):
     @lazy_property
     def daily_content(self):
         backup_cmd = str(self.script.path)
-        checked_cmd = self.healthcheck.wrap_command(backup_cmd)
-        return f"#!{self.props.shell}\nset -euo pipefail\n\n{checked_cmd}"
+
+        if self.props.setup_healthcheck:
+            backup_cmd = self.healthcheck.wrap_command(backup_cmd)
+
+        return f"#!{self.props.shell}\nset -euo pipefail\n\n{backup_cmd}"
 
     def add_precommand(self, cmd):
         self.backup_precommands.append(cmd)
