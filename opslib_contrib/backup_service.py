@@ -57,8 +57,8 @@ class B2Storage(BackupStorage):
     @lazy_property
     def restic_env(self):
         return dict(
-            B2_ACCOUNT_ID=self.b2_key.key_id,
-            B2_ACCOUNT_KEY=self.b2_key.key,
+            B2_ACCOUNT_ID=evaluate(self.b2_key.key_id),
+            B2_ACCOUNT_KEY=evaluate(self.b2_key.key),
         )
 
 
